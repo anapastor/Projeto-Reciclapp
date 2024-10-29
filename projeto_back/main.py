@@ -1,5 +1,6 @@
 #Soneka, eu instalei muitas Bibliotecas, n sei se vai rodar direto
 import pyodbc #Biblioteca para o CRUD.
+import hashlib #Biblioteca para criptografar a senha.
 
 # String de conexão corrigida para MySQL(O meu, o teu provavelmente nao tem senha).
 dados_conexao = (
@@ -23,10 +24,11 @@ cursor = conexao.cursor() #Elemento que executa os comandos SQL do Python.
 #        self.email = email
 
 
+
 def login(user_input, password):
     query = """
             SELECT * FROM users
-            WHERE (username = ? OR user_email = ?) AND user_password = ?
+            WHERE (username = ? OR user_email = ?) AND user_password = SHA2(?, 256);
             """
     cursor.execute(query, (user_input, user_input, password))
     result = cursor.fetchone()
@@ -36,14 +38,21 @@ def login(user_input, password):
     else:
         print("Erro: Usuário/email não encontrado ou senha inválida.")
 
-def registro(username, user_password, user_email):
-    registrar = """insert into users(username, user_password, user_email)
-    values(?, ?, ?)"""     #Comando do MySQL.
 
-    cursor.execute(registrar, (username, user_password, user_email))  #Executa o comando dado.
+def registro(username, user_password, user_email, user_genero):
+    user_password_hash = hashlib.sha256(user_password.encode()).hexdigest()
+
+    registrar = """insert into users(username, user_password, user_email, user_genero)
+    values(?, ?, ?, ?)"""     #Comando do MySQL.
+
+    cursor.execute(registrar, (username, user_password_hash, user_email, user_genero))  #Executa o comando dado.
     cursor.commit()  #Esse comando atualiza tudo que você edita no seu banco de dados.,
+
+
+
 
 username = input("Digite sua nametag: ")
 user_email = input("Digite seu email: ")
 user_password = input("Digite sua senha: ")
-registro(username, user_password, user_email)
+user_genero = input("Digite seu genero: ")
+registro(username, user_password, user_email, user_genero)
