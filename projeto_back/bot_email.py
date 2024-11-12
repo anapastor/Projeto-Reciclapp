@@ -23,9 +23,11 @@ def enviar_token(destinatario, assunto, mensagem):
         server.login(remetente, senha)
         server.sendmail(remetente, destinatario, msg.as_string())
         print("Email enviado com sucesso!")
+        return True
 
     except Exception as e:
         print(f"Erro ao enviar email: {e}")
+        return False
 
     finally:
         server.quit
