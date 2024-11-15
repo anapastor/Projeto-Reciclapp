@@ -13,6 +13,7 @@ dados_conexao = (
 conexao = pyodbc.connect(dados_conexao)
 cursor = conexao.cursor()
 
+
 def salvar_usuario(username, user_password, user_email, user_genero, user_token):
     created_at = datetime.datetime.now()
     cursor.execute('''
@@ -22,21 +23,27 @@ def salvar_usuario(username, user_password, user_email, user_genero, user_token)
     conexao.commit()
 
 def excluir_usuario(email):
+    cursor.execute('DELETE FROM company_history WHERE users_id = (SELECT id FROM users WHERE user_email = ?)', (email,))
+    conexao.commit()
+
+    # Agora, excluir o usuário
     cursor.execute('DELETE FROM users WHERE user_email = ?', (email,))
     conexao.commit()
 
 def obter_usuario(email):
-    cursor.execute('SELECT username, user_password, user_email, user_genero, user_token, created_at FROM users WHERE user_email = ?', (email,))
-    resultado = cursor.fetchone()
-    if resultado:
-        return {
-            'username': resultado[0],
-            'user_password': resultado[1],
-            'user_email': resultado[2],
-            'user_genero': resultado[3],
-            'user_token': resultado[4],
-            'created_at': resultado[5]
-        }
+    cursor.execute('SELECT * FROM users WHERE user_email = ?', (email,))
+    row = cursor.fetchone()
+    if row:
+        columns = [column[0] for column in cursor.description]
+        return dict(zip(columns, row))
+    return None
+
+def obter_usuario_por_nome(username):
+    cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+    row = cursor.fetchone()
+    if row:
+        columns = [column[0] for column in cursor.description]
+        return dict(zip(columns, row))
     return None
 
 def obter_email_do_token(token):
@@ -48,3 +55,67 @@ def verificar_token(email, token):
     cursor.execute('SELECT user_token FROM users WHERE user_email = ?', (email,))
     resultado = cursor.fetchone()
     return resultado and resultado[0] == token
+
+def atualizar_senha(user_token, nova_senha):
+    senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
+    cursor.execute('''
+        UPDATE users
+        SET user_password = ?
+        WHERE user_token = ?
+    ''', (senha_hash, user_token))
+    conexao.commit()
+    return cursor.rowcount > 0
+
+def definir_reset_token(email, reset_token, reset_token_expiration):
+    cursor.execute('''
+        UPDATE users SET reset_token = ?, reset_token_expiration = ?
+        WHERE user_email = ?
+    ''', (reset_token, reset_token_expiration, email))
+    conexao.commit()
+
+def remover_reset_token(email):
+    cursor.execute('''
+        UPDATE users SET reset_token = NULL, reset_token_expiration = NULL
+        WHERE user_email = ?
+    ''', (email,))
+    conexao.commit()
+
+def salvar_visualizacao(users_id, enterprise_id):
+    data_visualizacao = datetime.datetime.now()
+    cursor.execute('''
+        INSERT INTO company_history (users_id, enterprise_id, data_visualizacao)
+        VALUES (?, ?, ?)
+    ''', (users_id, enterprise_id, data_visualizacao))
+    conexao.commit()
+
+def obter_historico_usuario(users_id):
+    query = '''
+        SELECT ch.id, ch.data_visualizacao, c.nome, c.endereco, c.bairro, c.cep, c.telefone, c.email, 
+               c.latitude, c.longitude, c.descricao, c.foto
+        FROM company_history ch
+        JOIN companys c ON ch.enterprise_id = c.id
+        WHERE ch.users_id = ?
+        ORDER BY ch.data_visualizacao DESC
+        LIMIT 10
+    '''
+    cursor.execute(query, (users_id,))
+    rows = cursor.fetchall()
+    
+    historico = []
+    for row in rows:
+        historico.append({
+            "id": row[0],
+            "data_visualizacao": row[1],
+            "nome": row[2],
+            "endereco": row[3],
+            "bairro": row[4],
+            "cep": row[5],
+            "telefone": row[6],
+            "email": row[7],
+            "latitude": row[8],
+            "longitude": row[9],
+            "descricao": row[10],
+            "foto": row[11]
+        })
+    
+    return historico
