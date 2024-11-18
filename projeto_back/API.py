@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+import re
 import bot_email
 import secrets
 import database
@@ -64,6 +65,9 @@ def enviar_email():
 
     if not all([nome_usuario, email, senha, genero]):
         return jsonify({"status": "fail", "reason": "missing fields"}), 400
+    
+    if ' ' in nome_usuario:
+        return jsonify({"status": "fail", "reason": "nome de usuário não pode conter espaços"}), 400
 
     # Verificar se o nome de usuário ou email já existem no banco de dados
     usuario_por_email = database.obter_usuario(email)
@@ -73,6 +77,9 @@ def enviar_email():
         return jsonify({"status": "fail", "reason": "email already exists"}), 400
     if usuario_por_nome:
         return jsonify({"status": "fail", "reason": "username already exists"}), 400
+    
+    if len(senha) < 8 or not re.search(r'\d', senha) or ' ' in senha:
+        return jsonify({"status": "fail", "reason": "senha deve ter ao menos 8 caracteres, conter números e não ter espaços"}), 400
 
     # Se não houver conflito, continuar com o registro
     token = secrets.token_hex(16)
@@ -134,6 +141,9 @@ def atualizar_senha():
 
     if not all([user_token, nova_senha]):
         return jsonify({"status": "fail", "reason": "missing fields"}), 400
+    
+    if len(nova_senha) < 8 or not re.search(r'\d', nova_senha) or ' ' in nova_senha:
+        return jsonify({"status": "fail", "reason": "senha deve ter ao menos 8 caracteres, conter números e não ter espaços"}), 400
 
     sucesso = database.atualizar_senha(user_token, nova_senha)
     return jsonify({"status": "success" if sucesso else "fail", "reason": "Usuário não encontrado" if not sucesso else None}), 200 if sucesso else 404
@@ -173,6 +183,9 @@ def resetar_senha():
 
     if not all([email, reset_token, nova_senha]):
         return jsonify({"status": "fail", "reason": "missing fields"}), 400
+    
+    if len(nova_senha) < 8 or not re.search(r'\d', nova_senha) or ' ' in nova_senha:
+        return jsonify({"status": "fail", "reason": "senha deve ter ao menos 8 caracteres, conter números e não ter espaços"}), 400
 
     usuario = database.obter_usuario(email)
     if not usuario or usuario.get('reset_token') != reset_token:
