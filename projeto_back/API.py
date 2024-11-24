@@ -1,5 +1,9 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
+from urllib.parse import unquote
+import matplotlib.pyplot as plt
 import re
+import importlib
+import io
 import bot_email
 import secrets
 import database
@@ -10,12 +14,12 @@ from datetime import datetime, timedelta
 # Função para excluir usuários com tokens expirados
 def excluir_usuarios_expirados():
     cursor = database.conexao.cursor()
-    cursor.execute("SELECT user_email, created_at FROM users")
+    cursor.execute("SELECT user_email, created_at, is_validated FROM users")
     usuarios = cursor.fetchall()
 
     for usuario in usuarios:
-        email, created_at = usuario
-        if created_at and datetime.now() > created_at + timedelta(minutes=15):
+        email, created_at, is_validated = usuario
+        if not is_validated and created_at and datetime.now() > created_at + timedelta(minutes=15):
             database.excluir_usuario(email)
             print(f"Usuário {email} excluído por expiração do token.")
 
@@ -109,12 +113,17 @@ def verificar_token():
     usuario = database.obter_usuario(email)
     if not usuario:
         return jsonify({"status": "fail", "reason": "user not found"}), 404
+
     if usuario['user_token'] != token:
         return jsonify({"status": "fail", "reason": "token incorrect"}), 400
 
-    if usuario['created_at'] and datetime.now() > usuario['created_at'] + timedelta(minutes=15):
+    created_at = usuario['created_at']
+    if created_at and datetime.now() > created_at + timedelta(minutes=15):
         database.excluir_usuario(email)
         return jsonify({"status": "fail", "reason": "token expired, user deleted"}), 400
+
+    # Atualiza o campo `is_validated` para True
+    database.marcar_usuario_como_validado(email)
 
     return jsonify({"status": "success", "message": "Token verificado com sucesso!"}), 200
 
@@ -122,12 +131,13 @@ def verificar_token():
 @app.route('/excluir-conta', methods=['POST'])
 def excluir_conta():
     data = request.json
-    token = data.get('token')
-    if not token:
-        return jsonify({"status": "fail", "reason": "token missing"}), 400
+    email = data.get('email')
 
-    email = database.obter_email_do_token(token)
-    if email:
+    if not email:
+        return jsonify({"status": "fail", "reason": "email missing"}), 400
+
+    usuario = database.obter_usuario(email)
+    if usuario:
         database.excluir_usuario(email)
         return jsonify({"status": "success", "message": "Conta excluída com sucesso!"}), 200
     return jsonify({"status": "fail", "reason": "usuário não encontrado"}), 404
@@ -136,17 +146,21 @@ def excluir_conta():
 @app.route('/atualizar-senha', methods=['POST'])
 def atualizar_senha():
     data = request.json
-    user_token = data.get('user_token')
+    email = data.get('email')
     nova_senha = data.get('nova_senha')
 
-    if not all([user_token, nova_senha]):
+    if not all([email, nova_senha]):
         return jsonify({"status": "fail", "reason": "missing fields"}), 400
-    
+
     if len(nova_senha) < 8 or not re.search(r'\d', nova_senha) or ' ' in nova_senha:
         return jsonify({"status": "fail", "reason": "senha deve ter ao menos 8 caracteres, conter números e não ter espaços"}), 400
 
-    sucesso = database.atualizar_senha(user_token, nova_senha)
-    return jsonify({"status": "success" if sucesso else "fail", "reason": "Usuário não encontrado" if not sucesso else None}), 200 if sucesso else 404
+    usuario = database.obter_usuario(email)
+    if not usuario:
+        return jsonify({"status": "fail", "reason": "Usuário não encontrado"}), 404
+
+    sucesso = database.atualizar_senha_por_email(email, nova_senha)
+    return jsonify({"status": "success" if sucesso else "fail"}), 200 if sucesso else 404
 
 
 @app.route('/solicitar-recuperacao-senha', methods=['POST'])
@@ -204,43 +218,63 @@ def resetar_senha():
 @app.route('/registrar-visualizacao', methods=['POST'])
 def registrar_visualizacao():
     data = request.json
-    token = data.get('token')
+    email = data.get('email')
     enterprise_id = data.get('enterprise_id')
 
-    if not all([token, enterprise_id]):
-        return jsonify({"status": "fail", "reason": "token or enterprise_id missing"}), 400
+    if not all([email, enterprise_id]):
+        return jsonify({"status": "fail", "reason": "email or enterprise_id missing"}), 400
 
-    email = database.obter_email_do_token(token)
-    if email:
-        usuario = database.obter_usuario(email)
-        users_id = usuario['id']
-        database.salvar_visualizacao(users_id, enterprise_id)
-        return jsonify({"status": "success", "message": "Visualização registrada com sucesso!"}), 200
+    usuario = database.obter_usuario(email)
+    if not usuario:
+        return jsonify({"status": "fail", "reason": "Usuário não encontrado"}), 404
 
-    return jsonify({"status": "fail", "reason": "Usuário não encontrado"}), 404
+    users_id = usuario['id']
+    database.salvar_visualizacao(users_id, enterprise_id)
+    return jsonify({"status": "success", "message": "Visualização registrada com sucesso!"}), 200
 
 
 @app.route('/obter-historico', methods=['POST'])
 def obter_historico():
     data = request.json
-    token = data.get('token')
+    email = data.get('email')
 
-    if not token:
-        return jsonify({"status": "fail", "reason": "token missing"}), 400
-
-    # Obtém o email com base no token
-    email = database.obter_email_do_token(token)
     if not email:
-        return jsonify({"status": "fail", "reason": "usuário não encontrado"}), 404
+        return jsonify({"status": "fail", "reason": "email missing"}), 400
 
-    # Obtém o ID do usuário
     usuario = database.obter_usuario(email)
-    users_id = usuario['id']
+    if not usuario:
+        return jsonify({"status": "fail", "reason": "Usuário não encontrado"}), 404
 
-    # Obtém o histórico de visualizações do usuário
+    users_id = usuario['id']
     historico = database.obter_historico_usuario(users_id)
-    
+
     return jsonify({"status": "success", "historico": historico}), 200
+
+
+@app.route('/grafico/<ano>/<mes>', methods=['GET'])
+def gerar_grafico_por_ano_mes(ano, mes):
+    try:
+      # Decodificar qualquer URL codificada
+        
+        # Importa o módulo de gráficos correspondente ao ano
+        modulo_graficos = importlib.import_module(f'graficos.graficos{ano}')
+
+        # Chama a função para gerar o gráfico
+        fig = modulo_graficos.gerar_grafico(mes)
+        if fig is None:
+            raise ValueError("A função gerar_grafico retornou None.")  # Verifica se o gráfico foi gerado
+
+        # Salva o gráfico em memória
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png')
+        buf.seek(0)
+
+        # Retorna o gráfico como uma imagem
+        return send_file(buf, mimetype='image/png')
+
+    except Exception as e:
+        print(f"Erro: {str(e)}")  # Log de erro para depuração
+        return jsonify({"status": "fail", "reason": str(e)}), 500
 
 
 if __name__ == '__main__':

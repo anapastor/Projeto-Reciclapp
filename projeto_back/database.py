@@ -66,6 +66,16 @@ def atualizar_senha(user_token, nova_senha):
     conexao.commit()
     return cursor.rowcount > 0
 
+def atualizar_senha_por_email(email, nova_senha):
+    senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
+    cursor.execute('''
+        UPDATE users
+        SET user_password = ?
+        WHERE user_email = ?
+    ''', (senha_hash, email))
+    conexao.commit()
+    return cursor.rowcount > 0
+
 def definir_reset_token(email, reset_token, reset_token_expiration):
     cursor.execute('''
         UPDATE users SET reset_token = ?, reset_token_expiration = ?
@@ -76,6 +86,14 @@ def definir_reset_token(email, reset_token, reset_token_expiration):
 def remover_reset_token(email):
     cursor.execute('''
         UPDATE users SET reset_token = NULL, reset_token_expiration = NULL
+        WHERE user_email = ?
+    ''', (email,))
+    conexao.commit()
+
+def marcar_usuario_como_validado(email):
+    cursor.execute('''
+        UPDATE users
+        SET is_validated = TRUE
         WHERE user_email = ?
     ''', (email,))
     conexao.commit()
