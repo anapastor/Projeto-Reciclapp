@@ -9,7 +9,18 @@ import secrets
 import database
 import hashlib
 from apscheduler.schedulers.background import BackgroundScheduler
+from math import radians, sin, cos, sqrt, atan2
 from datetime import datetime, timedelta
+
+
+def calcular_distancia(lat1, lng1, lat2, lng2):
+    # Conversão de graus para radianos
+    R = 6371.0  # Raio da Terra em km
+    dlat = radians(lat2 - lat1)
+    dlng = radians(lng2 - lng1)
+    a = sin(dlat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return R * c
 
 # Função para excluir usuários com tokens expirados
 def excluir_usuarios_expirados():
@@ -251,6 +262,27 @@ def obter_historico():
     return jsonify({"status": "success", "historico": historico}), 200
 
 
+@app.route('/info-perfil', methods=['POST'])
+def obter_perfil():
+    data = request.json
+    email = data.get('email')
+
+    if not email:
+        return jsonify({"status": "fail", "reason": "email missing"}), 400
+
+    # Obter informações do usuário pelo email
+    usuario = database.obter_usuario(email)
+    if not usuario:
+        return jsonify({"status": "fail", "reason": "user not found"}), 404
+
+    # Retorna o nome e gênero do usuário
+    return jsonify({
+        "status": "success",
+        "nome": usuario['username'],
+        "genero": usuario['user_genero']
+    }), 200
+
+
 @app.route('/grafico/<ano>/<mes>', methods=['GET'])
 def gerar_grafico_por_ano_mes(ano, mes):
     try:
@@ -275,6 +307,41 @@ def gerar_grafico_por_ano_mes(ano, mes):
     except Exception as e:
         print(f"Erro: {str(e)}")  # Log de erro para depuração
         return jsonify({"status": "fail", "reason": str(e)}), 500
+    
+
+@app.route('/listar-empresas', methods=['POST'])
+def listar_empresas():
+    data = request.json
+    email = data.get('email')
+    user_lat = data.get('latitude')
+    user_lng = data.get('longitude')
+
+    if not all([email, user_lat, user_lng]):
+        return jsonify({"status": "fail", "reason": "email, latitude or longitude missing"}), 400
+
+    usuario = database.obter_usuario(email)
+    if not usuario:
+        return jsonify({"status": "fail", "reason": "Usuário não encontrado"}), 404
+
+    # Obter empresas do banco de dados
+    empresas = database.obter_empresas()
+
+    # Calcular distância e ordenar
+    empresas_distancia = []
+    for empresa in empresas:
+        distancia = calcular_distancia(float(user_lat), float(user_lng), empresa['latitude'], empresa['longitude'])
+        empresas_distancia.append({
+            "id": empresa['id'],
+            "nome": empresa['nome'],
+            "latitude": empresa['latitude'],
+            "longitude": empresa['longitude'],
+            "distancia_km": round(distancia, 2)  # Formata a distância para 2 casas decimais
+        })
+
+    # Ordenar empresas pela distância
+    empresas_distancia.sort(key=lambda x: x['distancia_km'])
+
+    return jsonify({"status": "success", "empresas": empresas_distancia}), 200
 
 
 if __name__ == '__main__':

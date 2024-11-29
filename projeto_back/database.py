@@ -137,3 +137,16 @@ def obter_historico_usuario(users_id):
         })
     
     return historico
+
+def obter_empresas():
+    cursor.execute('SELECT id, nome, latitude, longitude FROM companys')
+    rows = cursor.fetchall()
+    empresas = []
+    for row in rows:
+        empresas.append({
+            'id': row[0],
+            'nome': row[1],
+            'latitude': row[2],
+            'longitude': row[3]
+        })
+    return empresas
