@@ -1,1 +1,1 @@
-web: python API.py
+web: python projeto_back/API.py
