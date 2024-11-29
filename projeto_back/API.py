@@ -40,27 +40,24 @@ app = Flask(__name__)
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
-    username_or_email = data.get('username_or_email')
+    email = data.get('email')
     senha = data.get('senha')
 
-    if not all([username_or_email, senha]):
-        return jsonify({"status": "fail", "reason": "Campos faltando."}), 400
+    # Verifica se os campos obrigatórios estão presentes
+    if not email or not senha:
+        return jsonify({"status": "fail", "reason": "Email ou senha faltando"}), 400
 
-    usuario = None
-    if '@' in username_or_email:
-        usuario = database.obter_usuario(username_or_email)
-    else:
-        usuario = database.obter_usuario_por_nome(username_or_email)
-
+    usuario = database.obter_usuario(email)
     if not usuario:
-        return jsonify({"status": "fail", "reason": "Usuário não encontrado."}), 404
+        return jsonify({"status": "fail", "reason": "Usuário não encontrado"}), 404
 
+    # Verifica a senha
     senha_hash = hashlib.sha256(senha.encode()).hexdigest()
     if usuario['user_password'] != senha_hash:
-        return jsonify({"status": "fail", "reason": "Senha incorreta."}), 400
+        return jsonify({"status": "fail", "reason": "Senha incorreta"}), 401
 
-    user_token = usuario['user_token']
-    return jsonify({"status": "success", "message": "Login feito com SUCELSO", "user_token": user_token}), 200
+    # Login bem-sucedido
+    return jsonify({"status": "success", "message": "Login realizado com sucesso"}), 200
 
 
 @app.route('/enviar-email', methods=['POST'])
@@ -203,17 +200,29 @@ def resetar_senha():
         return jsonify({"status": "fail", "reason": "Senha deve ter ao menos 8 caracteres, conter números e não ter espaços."}), 400
 
     usuario = database.obter_usuario(email)
-    if not usuario or usuario.get('reset_token') != reset_token:
+    if not usuario:
+        print(f"Usuário não encontrado para o email: {email}")
+        return jsonify({"status": "fail", "reason": "Usuário não encontrado."}), 404
+
+    if usuario.get('reset_token') != reset_token:
+        print(f"Token inválido para o email: {email}")
         return jsonify({"status": "fail", "reason": "Token inválido ou expirado."}), 400
 
     if datetime.now() > usuario['reset_token_expiration']:
+        print(f"Token expirado para o email: {email}")
         return jsonify({"status": "fail", "reason": "Token expirado."}), 400
 
+    # Atualiza a senha
     nova_senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
-    database.atualizar_senha(email, nova_senha_hash)
-    database.remover_reset_token(email)
+    sucesso = database.atualizar_senha_por_email(email, nova_senha_hash)
 
-    return jsonify({"status": "success", "message": "Senha redefinida com sucesso!"}), 200
+    if sucesso:
+        database.remover_reset_token(email)
+        print(f"Senha atualizada com sucesso para o email: {email}")
+        return jsonify({"status": "success", "message": "Senha redefinida com sucesso!"}), 200
+    else:
+        print(f"Falha ao atualizar senha para o email: {email}")
+        return jsonify({"status": "fail", "reason": "Falha ao atualizar senha."}), 500
 
 
 @app.route('/registrar-visualizacao', methods=['POST'])
