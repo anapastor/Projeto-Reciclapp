@@ -35,7 +35,7 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(excluir_usuarios_expirados, 'interval', minutes=1)
 scheduler.start()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static")
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -280,22 +280,37 @@ def obter_perfil():
     }), 200
 
 
-@app.route('/grafico/<ano>/<mes>', methods=['GET'])
-def gerar_grafico_por_ano_mes(ano, mes):
+@app.route('/grafico', methods=['POST'])
+def gerar_grafico_post():
     try:
-        
-        modulo_graficos = importlib.import_module(f'graficos.graficos{ano}')
+        # Obter dados enviados no corpo da requisição
+        data = request.json
+        ano = data.get('ano')
+        mes = data.get('mes')
 
+        # Validação de entrada
+        if not ano or not mes:
+            return jsonify({"status": "fail", "reason": "Ano ou mês estão faltando."}), 400
+
+        # Importa o módulo correto com base no ano
+        modulo_nome = f'graficos.graficos{ano}'
+        print(f"Importando módulo: {modulo_nome}")
+        modulo_graficos = importlib.import_module(modulo_nome)
+
+        # Chama a função de geração de gráfico no módulo importado
         fig = modulo_graficos.gerar_grafico(mes)
         if fig is None:
             raise ValueError("A função gerar_grafico retornou None.")
         
+        # Salva o gráfico em um buffer para envio como resposta
         buf = io.BytesIO()
         fig.savefig(buf, format='png')
         buf.seek(0)
 
         return send_file(buf, mimetype='image/png')
 
+    except ModuleNotFoundError:
+        return jsonify({"status": "fail", "reason": f"Módulo não encontrado para ano {ano}."}), 404
     except Exception as e:
         print(f"Erro: {str(e)}")
         return jsonify({"status": "fail", "reason": str(e)}), 500

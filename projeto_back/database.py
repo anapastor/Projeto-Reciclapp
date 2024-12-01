@@ -67,12 +67,12 @@ def atualizar_senha(user_token, nova_senha):
     return cursor.rowcount > 0
 
 def atualizar_senha_por_email(email, nova_senha):
-
+    senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
     cursor.execute('''
         UPDATE users
         SET user_password = ?
         WHERE user_email = ?
-    ''', (nova_senha, email))
+    ''', (senha_hash, email))
     conexao.commit()
 
     if cursor.rowcount > 0:
