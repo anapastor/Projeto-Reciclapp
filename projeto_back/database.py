@@ -153,3 +153,34 @@ def obter_empresas():
             'longitude': row[3]
         })
     return empresas
+
+def obter_empresa_por_nome(nome):
+    try:
+        query = '''
+            SELECT id, nome, endereco, bairro, cep, telefone, email, latitude, longitude, descricao, foto
+            FROM companys
+            WHERE nome = ?
+        '''
+        print(f"Executando consulta: {query} com nome = {nome}")
+        cursor.execute(query, (nome,))
+        row = cursor.fetchone()
+        if row:
+            print(f"Resultado encontrado: {row}")
+            return {
+                "id": row[0],
+                "nome": row[1],
+                "endereco": row[2],
+                "bairro": row[3],
+                "cep": row[4],
+                "telefone": row[5],
+                "email": row[6],
+                "latitude": row[7],
+                "longitude": row[8],
+                "descricao": row[9],
+                "foto": row[10],
+            }
+        print("Nenhum resultado encontrado.")
+        return None
+    except Exception as e:
+        print(f"Erro na consulta SQL: {e}")
+        raise

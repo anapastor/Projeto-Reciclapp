@@ -11,6 +11,7 @@ import hashlib
 from apscheduler.schedulers.background import BackgroundScheduler
 from math import radians, sin, cos, sqrt, atan2
 from datetime import datetime, timedelta
+import threading
 
 def calcular_distancia(lat1, lng1, lat2, lng2):
     R = 6371.0  # Raio da Terra em km
@@ -35,7 +36,30 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(excluir_usuarios_expirados, 'interval', minutes=1)
 scheduler.start()
 
+
 app = Flask(__name__, static_folder="static")
+class TimeoutException(Exception):
+    pass
+
+def run_with_timeout(func, timeout, *args, **kwargs):
+    result = {}
+
+    def wrapper():
+        try:
+            result["value"] = func(*args, **kwargs)
+        except Exception as e:
+            result["exception"] = e
+
+    thread = threading.Thread(target=wrapper)
+    thread.start()
+    thread.join(timeout)
+
+    if thread.is_alive():
+        raise TimeoutException("Tempo limite atingido")
+    if "exception" in result:
+        raise result["exception"]
+    return result.get("value")
+
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -158,7 +182,7 @@ def atualizar_senha():
         return jsonify({"status": "fail", "reason": "Usuário não encontrado."}), 404
 
     sucesso = database.atualizar_senha_por_email(email, nova_senha)
-    return jsonify({"status": "success" if sucesso else "fail"}), 200 if sucesso else 404
+    return jsonify({"status": "Senha atualizada com SuCelso!" if sucesso else "fail"}), 200 if sucesso else 404
 
 
 @app.route('/solicitar-recuperacao-senha', methods=['POST'])
@@ -213,8 +237,7 @@ def resetar_senha():
         return jsonify({"status": "fail", "reason": "Token expirado."}), 400
 
     # Atualiza a senha
-    nova_senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
-    sucesso = database.atualizar_senha_por_email(email, nova_senha_hash)
+    sucesso = database.atualizar_senha_por_email(email, nova_senha)
 
     if sucesso:
         database.remover_reset_token(email)
@@ -316,7 +339,30 @@ def gerar_grafico_post():
         return jsonify({"status": "fail", "reason": str(e)}), 500
     
 
+@app.route('/empresa', methods=['POST'])
+def obter_empresa():
+    data = request.json
+    nome_empresa = data.get('nome_empresa')
+
+    if not nome_empresa:
+        return jsonify({"status": "fail", "reason": "Nome da empresa está faltando."}), 400
+
+    try:
+        # Timeout de 10 segundos
+        empresa = run_with_timeout(database.obter_empresa_por_nome, 10, nome_empresa)
+        if not empresa:
+            return jsonify({"status": "fail", "reason": "Empresa não encontrada."}), 404
+
+        return jsonify({"status": "success", "empresa": empresa}), 200
+    except TimeoutException:
+        return jsonify({"status": "fail", "reason": "Tempo limite atingido"}), 504
+    except Exception as e:
+        print(f"Erro: {str(e)}")
+        return jsonify({"status": "fail", "reason": "Erro interno no servidor"}), 500 
+    
+
 @app.route('/listar-empresas', methods=['POST'])
+
 def listar_empresas():
     data = request.json
     email = data.get('email')
@@ -339,8 +385,6 @@ def listar_empresas():
         empresas_distancia.append({
             "id": empresa['id'],
             "nome": empresa['nome'],
-            "latitude": empresa['latitude'],
-            "longitude": empresa['longitude'],
             "distancia_km": round(distancia, 2)
         })
 

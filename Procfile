@@ -1,1 +1,0 @@
-web: python projeto_back/API.py
